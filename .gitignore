@@ -1,0 +1,5 @@
+bin/
+.cluster/
+data/
+*.test
+*.out

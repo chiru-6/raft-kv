@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.22", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Format
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build -o bin/ ./cmd/...
+      - name: Test (race detector, includes chaos tests)
+        run: go test -race -count=1 -timeout 10m ./...
+      - name: Smoke test a real 3-process cluster
+        run: |
+          scripts/cluster.sh start
+          ./bin/kvctl put ci hello
+          test "$(./bin/kvctl get ci)" = hello
+          leader=$(./bin/kvctl status | awk '$3=="leader"{print $2}')
+          scripts/cluster.sh kill "$leader"
+          ./bin/kvctl put after-failover yes
+          test "$(./bin/kvctl get after-failover)" = yes
+          scripts/cluster.sh clean
+      - name: Benchmark (short)
+        run: ./bin/kvbench -inproc 3 -clients 32 -duration 5s
